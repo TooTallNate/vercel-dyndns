@@ -1,0 +1,8 @@
+{
+	"rewrites": [
+		{
+			"source": "/nic/update",
+			"destination": "/api/index"
+		}
+	]
+}
