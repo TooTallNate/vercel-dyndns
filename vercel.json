@@ -3,6 +3,10 @@
 		{
 			"source": "/nic/update",
 			"destination": "/api/index"
+		},
+		{
+			"source": "/checkip",
+			"destination": "/api/checkip"
 		}
 	]
 }
