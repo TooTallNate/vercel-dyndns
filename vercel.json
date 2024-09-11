@@ -2,7 +2,7 @@
 	"rewrites": [
 		{
 			"source": "/nic/update",
-			"destination": "/api/index"
+			"destination": "/api/update"
 		},
 		{
 			"source": "/checkip",

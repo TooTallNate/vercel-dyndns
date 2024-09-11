@@ -1,7 +1,21 @@
-import psl from 'psl';
-import basicAuth from 'basic-auth';
+import * as psl from 'psl';
+import * as basicAuth from 'basic-auth';
+
+// "punycode" doesn't seem to work in the Edge Runtime :(
+//export const config = {
+//	runtime: 'edge',
+//};
 
 const API = 'https://api.vercel.com/';
+
+interface DNSRecord {
+	id: string;
+	name: string;
+	type: string;
+	value: string;
+	ttl: number;
+	comment?: string;
+}
 
 export async function GET(request: Request) {
 	const url = new URL(request.url);
@@ -85,7 +99,7 @@ async function update(
 	if (!res.ok) {
 		return 'badauth';
 	}
-	const data = await res.json();
+	const data = (await res.json()) as { records: DNSRecord[] };
 
 	// TODO: handle pagination
 	const existingRecord = data.records.find(
