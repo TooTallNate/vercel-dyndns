@@ -18,63 +18,77 @@ interface DNSRecord {
 }
 
 export async function GET(request: Request) {
-	const url = new URL(request.url);
+	let res = '';
+	let status = 200;
 
-	const hostname = url.searchParams.get('hostname');
-	if (!hostname) {
-		console.log('hostname query parameter not provided');
-		return res('notfqdn');
+	try {
+		const url = new URL(request.url);
+
+		const hostname = url.searchParams.get('hostname');
+		if (!hostname) {
+			console.log('hostname query parameter not provided');
+			throw 'notfqdn';
+		}
+
+		const ip = url.searchParams.get('myip');
+		if (!ip) {
+			console.log('myip query parameter not provided');
+			status = 400;
+			throw 'badrequest';
+		}
+
+		const auth = request.headers.get('authorization');
+		if (!auth) {
+			console.log('authorization header not provided');
+			status = 401;
+			throw 'badauth';
+		}
+
+		const parsedAuth = basicAuth.parse(auth);
+		if (!parsedAuth) {
+			console.log('invalid authorization header');
+			throw 'badauth';
+		}
+
+		for (const h of hostname.split(',')) {
+			const parsedPsl = psl.parse(h);
+			if (parsedPsl.error) {
+				console.log(
+					`invalid hostname: ${parsedPsl.error.message} (${parsedPsl.error.code})`,
+				);
+				throw 'notfqdn';
+			}
+
+			if (!parsedPsl.domain) {
+				console.log('invalid hostname: no domain');
+				throw 'notfqdn';
+			}
+
+			if (!parsedPsl.subdomain) {
+				console.log('invalid hostname: no subdomain');
+				throw 'notfqdn';
+			}
+
+			await update(
+				parsedAuth.pass,
+				parsedAuth.name,
+				parsedPsl.subdomain,
+				parsedPsl.domain,
+				ip,
+			);
+		}
+
+		res = `good ${ip}`;
+	} catch (e: unknown) {
+		if (typeof e === 'string') {
+			res = e;
+		} else {
+			throw e;
+		}
 	}
 
-	const parsedPsl = psl.parse(hostname);
-	if (parsedPsl.error) {
-		console.log(
-			`invalid hostname: ${parsedPsl.error.message} (${parsedPsl.error.code})`,
-		);
-		return res('notfqdn');
-	}
-
-	if (!parsedPsl.domain) {
-		console.log('invalid hostname: no domain');
-		return res('notfqdn');
-	}
-
-	if (!parsedPsl.subdomain) {
-		console.log('invalid hostname: no subdomain');
-		return res('notfqdn');
-	}
-
-	const ip = url.searchParams.get('myip');
-	if (!ip) {
-		console.log('myip query parameter not provided');
-		return res('badrequest');
-	}
-
-	const auth = request.headers.get('authorization');
-	if (!auth) {
-		console.log('authorization header not provided');
-		return res('badauth');
-	}
-
-	const parsedAuth = basicAuth.parse(auth);
-	if (!parsedAuth) {
-		console.log('invalid authorization header');
-		return res('badauth');
-	}
-
-	const result = await update(
-		parsedAuth.pass,
-		parsedAuth.name,
-		parsedPsl.subdomain,
-		parsedPsl.domain,
-		ip,
-	);
-
-	return res(result);
-}
-
-function res(body: string) {
-	return new Response(body, {
+	return new Response(res, {
+		status,
 		headers: {
 			'content-type': 'text/plain',
 		},
@@ -87,7 +101,7 @@ async function update(
 	hostname: string,
 	domain: string,
 	ip: string,
-): Promise<string> {
+): Promise<void> {
 	const headers = new Headers({ Authorization: `Bearer ${token}` });
 
 	// Check if the DNS record already exists
@@ -97,7 +111,7 @@ async function update(
 	);
 	let res = await fetch(GET_DNS, { headers });
 	if (!res.ok) {
-		return 'badauth';
+		throw 'badauth';
 	}
 	const data = (await res.json()) as { records: DNSRecord[] };
 
@@ -120,10 +134,12 @@ async function update(
 			console.log(
 				`no change to existing record for ${hostname}.${domain}: ${ip}`,
 			);
-			return `nochg ${ip}`;
+			throw `nochg ${ip}`;
 		}
 
-		console.log(`updating existing record for ${hostname}.${domain}: ${ip}`);
+		console.log(
+			`updating existing record for ${hostname}.${domain}: ${ip}`,
+		);
 		const PATCH_DNS = new URL(
 			`/v1/domains/records/${encodeURIComponent(existingRecord.id)}?teamId=${teamId}`,
 			API,
@@ -151,8 +167,6 @@ async function update(
 		console.log(
 			`failed to update record for ${hostname}.${domain}: ${ip}: ${text}`,
 		);
-		return 'dnserr';
+		throw 'dnserr';
 	}
-
-	return `good ${ip}`;
 }
