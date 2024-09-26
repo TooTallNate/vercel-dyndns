@@ -1,10 +1,9 @@
-import * as psl from 'psl';
+import * as tldts from 'tldts';
 import * as basicAuth from 'basic-auth';
 
-// "punycode" doesn't seem to work in the Edge Runtime :(
-//export const config = {
-//	runtime: 'edge',
-//};
+export const config = {
+	runtime: 'edge',
+};
 
 const API = 'https://api.vercel.com/';
 
@@ -51,13 +50,7 @@ export async function GET(request: Request) {
 		}
 
 		for (const h of hostname.split(',')) {
-			const parsedPsl = psl.parse(h);
-			if (parsedPsl.error) {
-				console.log(
-					`invalid hostname: ${parsedPsl.error.message} (${parsedPsl.error.code})`,
-				);
-				throw 'notfqdn';
-			}
+			const parsedPsl = tldts.parse(h);
 
 			if (!parsedPsl.domain) {
 				console.log('invalid hostname: no domain');
