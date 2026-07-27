@@ -6,11 +6,11 @@ A simple DynDNS updater service for Vercel DNS. Comaptible with `ddclient`, `ina
 
 ```ini
 # General config
-daemon=300
+daemon=60
 ssl=yes
 
 # Router
-use=web, web=dyndns.n8.io/checkip
+use=web, web=https://dyndns.n8.io/checkip
 
 # Protocol
 protocol=dyndns2
