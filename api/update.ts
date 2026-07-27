@@ -3,6 +3,8 @@ import * as basicAuth from 'basic-auth';
 
 const API = 'https://api.vercel.com/';
 
+const PAGE_SIZE = 100;
+
 interface DNSRecord {
 	id: string;
 	name: string;
@@ -12,9 +14,62 @@ interface DNSRecord {
 	comment?: string;
 }
 
+interface DNSRecordsResponse {
+	records: DNSRecord[];
+	pagination?: {
+		count: number;
+		next: number | null;
+		prev: number | null;
+	};
+}
+
+/**
+ * Walks every page of the domain's DNS records looking for an existing `A`
+ * record for `hostname`.
+ *
+ * The Vercel API paginates this listing with a `next` cursor (a timestamp
+ * passed back as `until`). Only inspecting the first page means a domain with
+ * more than `PAGE_SIZE` records can report "not found" for a record that does
+ * exist, causing a duplicate `A` record to be created.
+ */
+async function findRecord(
+	headers: Headers,
+	teamId: string,
+	domain: string,
+	hostname: string,
+): Promise<DNSRecord | undefined> {
+	let until: number | null = null;
+
+	do {
+		const GET_DNS = new URL(
+			`/v4/domains/${encodeURIComponent(domain)}/records`,
+			API,
+		);
+		GET_DNS.searchParams.set('teamId', teamId);
+		GET_DNS.searchParams.set('limit', String(PAGE_SIZE));
+		if (until !== null) {
+			GET_DNS.searchParams.set('until', String(until));
+		}
+
+		const res = await fetch(GET_DNS, { headers });
+		if (!res.ok) {
+			throw 'badauth';
+		}
+		const data = (await res.json()) as DNSRecordsResponse;
+
+		const match = data.records.find(
+			(r) => r.name === hostname && r.type === 'A',
+		);
+		if (match) return match;
+
+		until = data.pagination?.next ?? null;
+	} while (until !== null);
+
+	return undefined;
+}
+
 export async function GET(request: Request) {
 	let res = '';
-	let status = 200;
 
 	try {
 		const url = new URL(request.url);
@@ -28,14 +83,12 @@ export async function GET(request: Request) {
 		const ip = url.searchParams.get('myip');
 		if (!ip) {
 			console.log('myip query parameter not provided');
-			status = 400;
 			throw 'badrequest';
 		}
 
 		const auth = request.headers.get('authorization');
 		if (!auth) {
 			console.log('authorization header not provided');
-			status = 401;
 			throw 'badauth';
 		}
 
@@ -45,29 +98,43 @@ export async function GET(request: Request) {
 			throw 'badauth';
 		}
 
+		// `dyndns2` specifies one result line per hostname, newline-separated.
+		// A failure for one hostname must not prevent the remaining hostnames
+		// from being updated, so per-host errors are collected rather than
+		// thrown out of the loop.
+		const results: string[] = [];
+
 		for (const h of hostname.split(',')) {
-			const parsedPsl = tldts.parse(h);
+			try {
+				const parsedPsl = tldts.parse(h);
 
-			if (!parsedPsl.domain) {
-				console.log('invalid hostname: no domain');
-				throw 'notfqdn';
+				if (!parsedPsl.domain) {
+					console.log('invalid hostname: no domain');
+					throw 'notfqdn';
+				}
+
+				if (!parsedPsl.subdomain) {
+					console.log('invalid hostname: no subdomain');
+					throw 'notfqdn';
+				}
+
+				await update(
+					parsedAuth.pass,
+					parsedAuth.name,
+					parsedPsl.subdomain,
+					parsedPsl.domain,
+					ip,
+				);
+
+				results.push(`good ${ip}`);
+			} catch (e: unknown) {
+				if (typeof e !== 'string') throw e;
+				// 'nochg <ip>' | 'notfqdn' | 'dnserr' | 'badauth'
+				results.push(e);
 			}
-
-			if (!parsedPsl.subdomain) {
-				console.log('invalid hostname: no subdomain');
-				throw 'notfqdn';
-			}
-
-			await update(
-				parsedAuth.pass,
-				parsedAuth.name,
-				parsedPsl.subdomain,
-				parsedPsl.domain,
-				ip,
-			);
 		}
 
-		res = `good ${ip}`;
+		res = results.join('\n');
 	} catch (e: unknown) {
 		if (typeof e === 'string') {
 			res = e;
@@ -76,8 +143,10 @@ export async function GET(request: Request) {
 		}
 	}
 
+	// `dyndns2` clients read the status code from the response body, so every
+	// response - including failures - is served with HTTP 200.
 	return new Response(res, {
-		status,
+		status: 200,
 		headers: {
 			'content-type': 'text/plain; charset=utf-8',
 			'cache-control': 'private, no-store',
@@ -94,23 +163,13 @@ async function update(
 ): Promise<void> {
 	const headers = new Headers({ Authorization: `Bearer ${token}` });
 
-	// Check if the DNS record already exists
-	const GET_DNS = new URL(
-		`/v4/domains/${encodeURIComponent(domain)}/records?teamId=${teamId}&limit=100`,
-		API,
-	);
-	let res = await fetch(GET_DNS, { headers });
-	if (!res.ok) {
-		throw 'badauth';
-	}
-	const data = (await res.json()) as { records: DNSRecord[] };
-
-	// TODO: handle pagination
-	const existingRecord = data.records.find(
-		(r) => r.name === hostname && r.type === 'A',
-	);
+	// Check if the DNS record already exists. The listing is paginated, so
+	// every page must be walked - missing an existing record here would take
+	// the "create" branch below and add a duplicate `A` record.
+	const existingRecord = await findRecord(headers, teamId, domain, hostname);
 
 	headers.set('Content-Type', 'application/json; charset=utf-8');
+	let res: Response;
 	const body = {
 		type: 'A',
 		name: hostname,

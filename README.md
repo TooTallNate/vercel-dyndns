@@ -1,6 +1,6 @@
 # vercel-dyndns
 
-A simple DynDNS updater service for Vercel DNS. Comaptible with `ddclient`, `inadyn`, and probably others.
+A simple DynDNS updater service for Vercel DNS. Compatible with `ddclient`, `inadyn`, and probably others.
 
 ### Example `ddclient.conf`
 
