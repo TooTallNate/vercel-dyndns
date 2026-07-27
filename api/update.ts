@@ -1,10 +1,6 @@
 import * as tldts from 'tldts';
 import * as basicAuth from 'basic-auth';
 
-export const config = {
-	runtime: 'edge',
-};
-
 const API = 'https://api.vercel.com/';
 
 interface DNSRecord {
