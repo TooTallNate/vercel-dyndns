@@ -1,4 +1,4 @@
-export default async function (request: Request) {
+export async function GET (request: Request) {
 	return new Response(
 		`Current IP Address: ${request.headers.get('x-real-ip')}`,
 		{
