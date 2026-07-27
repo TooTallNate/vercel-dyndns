@@ -79,7 +79,8 @@ export async function GET(request: Request) {
 	return new Response(res, {
 		status,
 		headers: {
-			'content-type': 'text/plain',
+			'content-type': 'text/plain; charset=utf-8',
+			'cache-control': 'private, no-store',
 		},
 	});
 }
